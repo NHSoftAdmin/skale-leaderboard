@@ -1,0 +1,5 @@
+node_modules
+checkKey.js
+package-lock.json
+build
+.env
