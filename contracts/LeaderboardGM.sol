@@ -89,11 +89,11 @@ contract LeaderboardGM {
         emit ScoreSubmitted(msg.sender, score);
     }
 
-    function getLeaderboard() external view returns (Entry[] memory) {
+    function getLeaderboard() external view onlyOwner returns (Entry[] memory) {
         return leaderboard;
     }
 
-    function getLeaderboardLength() external view returns (uint256) {
+    function getLeaderboardLength() external view onlyOwner returns (uint256) {
         return leaderboard.length;
     }
 }
