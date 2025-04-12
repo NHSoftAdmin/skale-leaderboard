@@ -1,60 +1,54 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.0;
 
-contract LeaderboardGM {
-    struct Entry {
-        address user;
+import "@openzeppelin/contracts/access/AccessControl.sol";
+
+contract LeaderboardGM is AccessControl {
+    bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
+    bytes32 public constant WHITELIST_ROLE = keccak256("WHITELIST_ROLE");
+
+    uint256 public constant MAX_LEADERBOARD_SIZE = 1000;
+
+    struct Player {
+        address wallet;
         uint256 score;
     }
 
-    Entry[] public leaderboard;
-    mapping(address => uint256) public userScores;
-    mapping(address => bool) public isWhitelisted;
+    Player[] public leaderboard;
 
-    uint256 public constant MAX_PLAYERS = 1000;
-    bool public submissionsPaused = false;
-    address public owner;
+    mapping(address => uint256) public userScores;
 
     event ScoreSubmitted(address indexed user, uint256 score);
 
     constructor() {
-        owner = msg.sender;
-        isWhitelisted[owner] = true;
+        _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
+        _grantRole(ADMIN_ROLE, msg.sender);
     }
 
-    modifier onlyOwner() {
-        require(msg.sender == owner, "Not authorized");
-        _;
+    function addToWhitelist(address user) external onlyRole(ADMIN_ROLE) {
+        grantRole(WHITELIST_ROLE, user);
     }
 
-    modifier whenNotPaused() {
-        require(!submissionsPaused, "Score submission is paused");
-        _;
+    function removeFromWhitelist(address user) external onlyRole(ADMIN_ROLE) {
+        revokeRole(WHITELIST_ROLE, user);
     }
 
-    function pauseSubmissions(bool _pause) external onlyOwner {
-        submissionsPaused = _pause;
-    }
-
-    function addToWhitelist(address user) external onlyOwner {
-        isWhitelisted[user] = true;
-    }
-
-    function removeFromWhitelist(address user) external onlyOwner {
-        isWhitelisted[user] = false;
-    }
-
-    function submitScore(uint256 score) external whenNotPaused {
-        require(isWhitelisted[msg.sender], "Not whitelisted");
+    function submitScore(uint256 score) external onlyRole(WHITELIST_ROLE) {
         require(score > 0, "Score must be positive");
-        uint256 currentScore = userScores[msg.sender];
-        if (score <= currentScore) return;
 
-        userScores[msg.sender] = score;
+        // Update user score if higher than previous
+        if (score > userScores[msg.sender]) {
+            userScores[msg.sender] = score;
+            _updateLeaderboard(msg.sender, score);
+            emit ScoreSubmitted(msg.sender, score);
+        }
+    }
+
+    function _updateLeaderboard(address user, uint256 score) internal {
         bool updated = false;
 
-        for (uint i = 0; i < leaderboard.length; i++) {
-            if (leaderboard[i].user == msg.sender) {
+        for (uint256 i = 0; i < leaderboard.length; i++) {
+            if (leaderboard[i].wallet == user) {
                 leaderboard[i].score = score;
                 updated = true;
                 break;
@@ -62,38 +56,25 @@ contract LeaderboardGM {
         }
 
         if (!updated) {
-            if (leaderboard.length < MAX_PLAYERS) {
-                leaderboard.push(Entry(msg.sender, score));
-            } else if (score > leaderboard[leaderboard.length - 1].score) {
-                leaderboard.push(Entry(msg.sender, score));
+            if (leaderboard.length < MAX_LEADERBOARD_SIZE) {
+                leaderboard.push(Player(user, score));
             } else {
-                return;
-            }
-        }
+                // Find the lowest score
+                uint256 minIndex = 0;
+                for (uint256 i = 1; i < leaderboard.length; i++) {
+                    if (leaderboard[i].score < leaderboard[minIndex].score) {
+                        minIndex = i;
+                    }
+                }
 
-        // sort descending
-        for (uint i = 0; i < leaderboard.length; i++) {
-            for (uint j = i + 1; j < leaderboard.length; j++) {
-                if (leaderboard[j].score > leaderboard[i].score) {
-                    Entry memory temp = leaderboard[i];
-                    leaderboard[i] = leaderboard[j];
-                    leaderboard[j] = temp;
+                if (score > leaderboard[minIndex].score) {
+                    leaderboard[minIndex] = Player(user, score);
                 }
             }
         }
-
-        // trim
-        if (leaderboard.length > MAX_PLAYERS) {
-            leaderboard.pop();
-        }
-        emit ScoreSubmitted(msg.sender, score);
     }
 
-    function getLeaderboard() external view onlyOwner returns (Entry[] memory) {
+    function getLeaderboard() external view returns (Player[] memory) {
         return leaderboard;
-    }
-
-    function getLeaderboardLength() external view onlyOwner returns (uint256) {
-        return leaderboard.length;
     }
 }
