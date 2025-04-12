@@ -12,13 +12,16 @@ contract LeaderboardGM is AccessControl {
     struct Player {
         address wallet;
         uint256 score;
+        uint64 timestamp; 
     }
 
     Player[] public leaderboard;
 
     mapping(address => uint256) public userScores;
 
-    event ScoreSubmitted(address indexed user, uint256 score);
+    event SubmitScore(address indexed user, uint256 highScore); // Event emitted when a score is submitted but not added to the leaderboard
+    event SubmitScoreAndAdd(address indexed user, uint256 score); // Event emitted when a score is submitted and added to the leaderboard
+    event Whitelist(address indexed user); // User wallet whitelisted    
 
     constructor() {
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
@@ -27,6 +30,7 @@ contract LeaderboardGM is AccessControl {
 
     function addToWhitelist(address user) external onlyRole(ADMIN_ROLE) {
         grantRole(WHITELIST_ROLE, user);
+        emit Whitelist(msg.sender);
     }
 
     function removeFromWhitelist(address user) external onlyRole(ADMIN_ROLE) {
@@ -39,9 +43,13 @@ contract LeaderboardGM is AccessControl {
         // Update user score if higher than previous
         if (score > userScores[msg.sender]) {
             userScores[msg.sender] = score;
-            _updateLeaderboard(msg.sender, score);
-            emit ScoreSubmitted(msg.sender, score);
+            _updateLeaderboard(msg.sender, score);  
+            emit SubmitScoreAndAdd(msg.sender, score);      
+        } else {
+            emit SubmitScore(msg.sender, score);
         }
+
+        
     }
 
     function _updateLeaderboard(address user, uint256 score) internal {
@@ -57,7 +65,7 @@ contract LeaderboardGM is AccessControl {
 
         if (!updated) {
             if (leaderboard.length < MAX_LEADERBOARD_SIZE) {
-                leaderboard.push(Player(user, score));
+                leaderboard.push(Player(user, score, uint64(block.timestamp)));
             } else {
                 // Find the lowest score
                 uint256 minIndex = 0;
@@ -68,7 +76,7 @@ contract LeaderboardGM is AccessControl {
                 }
 
                 if (score > leaderboard[minIndex].score) {
-                    leaderboard[minIndex] = Player(user, score);
+                    leaderboard[minIndex] = Player(user, score, uint64(block.timestamp));
                 }
             }
         }
