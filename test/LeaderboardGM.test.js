@@ -1,79 +1,42 @@
-require("dotenv").config();
-const LeaderboardGM = artifacts.require("LeaderboardGM");
+// test/LeaderboardGM.test.js
+const LeaderboardGM = artifacts.require("LeaderboardGM.sol");
+const { expectRevert } = require("@openzeppelin/test-helpers");
 
-const admin = process.env.ADMIN_ADDRESS;
-const user1 = process.env.USER1_ADDRESS;
-const user2 = process.env.USER2_ADDRESS;
-
-contract("LeaderboardGM", () => {
+contract("LeaderboardGM", ([admin, user1, user2, user3]) => {
   let contract;
 
-  before(async () => {
-    contract = await LeaderboardGM.deployed();
+  beforeEach(async () => {
+    contract = await LeaderboardGM.new({ from: admin });
   });
 
-  it("allows whitelisted user to submit score with username", async () => {
-    await contract.addToWhitelist(user1, { from: admin });
-    const score = 1234;
-    const username = "testuser1";
-    await contract.submitScore(score, username, { from: user1 });
-
-    const leaderboard = await contract.getLeaderboard();
-    const entry = leaderboard.find(e => e.wallet.toLowerCase() === user1.toLowerCase());
-    assert(entry, "User1 not found on leaderboard");    
-    assert.equal(entry.score, score, "Score not stored correctly");    
-    assert.equal(entry.username, username, "Username not stored correctly");
-  });
-
-  it("rejects non-whitelisted user", async () => {
-    let reverted = false;
-    try {
-      await contract.submitScore(9999, "user2", { from: user2 });
-    } catch (err) {
-      reverted = true;
-    }
-    assert.equal(reverted, true, "Non-whitelisted user2 should not be able to submit score");
-  });
-
-  it("can remove from whitelist", async () => {
-    await contract.removeFromWhitelist(user1, { from: admin });
-
-    let reverted = false;
-    try {
-      await contract.submitScore(8888, "user1", { from: user1 });
-    } catch (err) {
-      reverted = true;
+  //for this test in the contract should be changed from 1000 to 10, other way will receive timeout
+  it("respects leaderboard max size with high score replacement", async function () {  
+    for (let i = 0; i < 10; i++) {
+      const newUser = web3.eth.accounts.create();
+      await contract.submitScore(newUser.address, 1000 + i, { from: admin });
     }
 
-    assert.equal(reverted, true, "User1 should not be able to submit after being removed from whitelist");
+    const lowUser = web3.eth.accounts.create();
+    await contract.submitScore(lowUser.address, 999, { from: admin }); // should not be added
+
+    const highUser = web3.eth.accounts.create();
+    await contract.submitScore(highUser.address, 2000, { from: admin }); // should replace lowest
+
+    const result = await contract.getLeaderboard();
+    assert.equal(result.length, 10);
+    const addresses = result.map(p => p.wallet.toLowerCase());
+    assert(addresses.includes(highUser.address.toLowerCase()));
+    assert(!addresses.includes(lowUser.address.toLowerCase()));
   });
 
-  it("updates score if higher and retains username", async () => {
-    await contract.addToWhitelist(user1, { from: admin });
-    await contract.submitScore(2000, "nameA", { from: user1 });
-    await contract.submitScore(9000, "nameB", { from: user1 });
-  
-    const leaderboard = await contract.getLeaderboard();
-    const entry = leaderboard.find(e => e.wallet.toLowerCase() === user1.toLowerCase());
-    assert(entry, "User1 should still be on leaderboard");
-    assert.equal(entry.score, 9000, "Score should be updated to the higher value");
-    assert.equal(entry.username, "nameA", "Username should remain unchanged after score update");
-  });
+  it("updates score if higher", async () => {
+    await contract.submitScore(user1, 2000, { from: admin });
+    await contract.submitScore(user1, 9000, { from: admin });
 
-  it("respects leaderboard max size with high score replacement", async () => {
-    await contract.addToWhitelist(user1, { from: admin });
+    const result = await contract.getLeaderboard();
+    const entry = result.find(p => p.wallet.toLowerCase() === user1.toLowerCase());
 
-    await contract.submitScore(1000, "user1", { from: user1 });
-
-    for (let i = 0; i < 5; i++) {
-      await contract.submitScore(1000 + i, "user1", { from: user1 });
-      await new Promise(res => setTimeout(res, 300));
-    }
-
-    const leaderboard = await contract.getLeaderboard();
-    const entriesForUser = leaderboard.filter(e => e.wallet.toLowerCase() === user1.toLowerCase());
-    assert.equal(entriesForUser.length, 1, "Should have only one entry for the same user");
-    assert.equal(entriesForUser[0].score, 1004, "Should have highest score stored");
-    assert.equal(entriesForUser[0].username, "user1", "Username should be stored correctly");
+    assert(entry);
+    assert.equal(entry.score.toString(), "9000");
   });
 });
