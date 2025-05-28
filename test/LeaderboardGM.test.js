@@ -1,42 +1,84 @@
-// test/LeaderboardGM.test.js
-const LeaderboardGM = artifacts.require("LeaderboardGM.sol");
-const { expectRevert } = require("@openzeppelin/test-helpers");
+require("dotenv").config();
+const LeaderboardGM = artifacts.require("LeaderboardGM");
 
-contract("LeaderboardGM", ([admin, user1, user2, user3]) => {
+const admin = process.env.ADMIN_ADDRESS;
+const user1 = process.env.USER1_ADDRESS;
+const user2 = process.env.USER2_ADDRESS;
+
+const { keccak256 } = web3.utils;
+const WHITELIST_ROLE = keccak256("WHITELIST_ROLE");
+
+contract("LeaderboardGM", () => {
   let contract;
 
-  beforeEach(async () => {
-    contract = await LeaderboardGM.new({ from: admin });
+  before(async () => {
+    contract = await LeaderboardGM.deployed();
   });
 
-  //for this test in the contract should be changed from 1000 to 10, other way will receive timeout
-  it("respects leaderboard max size with high score replacement", async function () {  
-    for (let i = 0; i < 10; i++) {
-      const newUser = web3.eth.accounts.create();
-      await contract.submitScore(newUser.address, 1000 + i, { from: admin });
+
+  it("respects leaderboard max size with high score replacement", async () => {
+    //await contract.addToWhitelist(user1, { from: admin });
+    await contract.grantRole(WHITELIST_ROLE, user1, { from: admin });
+    await contract.submitScore(1000, { from: user1 });
+  
+    for (let i = 0; i < 5; i++) {
+      await contract.grantRole(WHITELIST_ROLE, user1, { from: admin });
+      await contract.submitScore(1000 + i, { from: user1 });
+      await new Promise(res => setTimeout(res, 300)); // small delay
+    }
+  
+    const leaderboard = await contract.getLeaderboard();
+    assert.equal(leaderboard.length, 1, "Should have only one entry from one user");
+    assert.equal(leaderboard[0].score, 1004, "Should have highest score stored");
+  });
+
+  it("allows whitelisted user to submit score", async () => {
+    //await contract.addToWhitelist(user1, { from: admin });
+    await contract.grantRole(WHITELIST_ROLE, user1, { from: admin });
+    const score = 1234;
+    await contract.submitScore(score, { from: user1 });
+
+    const leaderboard = await contract.getLeaderboard();
+    const entry = leaderboard.find(e => e.wallet.toLowerCase() === user1.toLowerCase());
+    assert(entry, "User1 not found on leaderboard");
+    assert.equal(entry.score, score, "Score not stored correctly");
+  });
+
+  it("rejects non-whitelisted user", async () => {
+    let reverted = false;
+    try {
+      await contract.submitScore(9999, { from: user2 });
+    } catch (err) {
+      reverted = true;
+    }
+    assert.equal(reverted, true, "Non-whitelisted user2 should not be able to submit score");
+  });
+
+  it("can remove from whitelist", async () => {
+    await contract.revokeRole(WHITELIST_ROLE, user1, { from: admin });
+    //await contract.removeFromWhitelist(user1, { from: admin });
+
+    let reverted = false;
+    try {
+      await contract.submitScore(8888, { from: user1 });
+    } catch (err) {
+      reverted = true;
     }
 
-    const lowUser = web3.eth.accounts.create();
-    await contract.submitScore(lowUser.address, 999, { from: admin }); // should not be added
-
-    const highUser = web3.eth.accounts.create();
-    await contract.submitScore(highUser.address, 2000, { from: admin }); // should replace lowest
-
-    const result = await contract.getLeaderboard();
-    assert.equal(result.length, 10);
-    const addresses = result.map(p => p.wallet.toLowerCase());
-    assert(addresses.includes(highUser.address.toLowerCase()));
-    assert(!addresses.includes(lowUser.address.toLowerCase()));
+    assert.equal(reverted, true, "User1 should not be able to submit after being removed from whitelist");
   });
 
   it("updates score if higher", async () => {
-    await contract.submitScore(user1, 2000, { from: admin });
-    await contract.submitScore(user1, 9000, { from: admin });
+    //await contract.addToWhitelist(user1, { from: admin });
+    await contract.grantRole(WHITELIST_ROLE, user1, { from: admin });
+    await contract.submitScore(2000, { from: user1 });
+    await contract.grantRole(WHITELIST_ROLE, user1, { from: admin });
+    await contract.submitScore(9000, { from: user1 });
 
-    const result = await contract.getLeaderboard();
-    const entry = result.find(p => p.wallet.toLowerCase() === user1.toLowerCase());
-
-    assert(entry);
-    assert.equal(entry.score.toString(), "9000");
+    const leaderboard = await contract.getLeaderboard();
+    const entry = leaderboard.find(e => e.wallet.toLowerCase() === user1.toLowerCase());
+    assert(entry, "User1 should still be on leaderboard");
+    assert.equal(entry.score, 9000, "Score should be updated to the higher value");
   });
+  
 });

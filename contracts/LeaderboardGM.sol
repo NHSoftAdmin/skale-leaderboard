@@ -5,6 +5,7 @@ import "@openzeppelin/contracts/access/AccessControl.sol";
 
 contract LeaderboardGM is AccessControl {
     uint256 public constant MAX_LEADERBOARD_SIZE = 1000;
+    bytes32 public constant WHITELIST_ROLE = keccak256("WHITELIST_ROLE");
 
     struct Player {
         uint256 score;
@@ -21,10 +22,9 @@ contract LeaderboardGM is AccessControl {
         _setupRole(DEFAULT_ADMIN_ROLE, msg.sender);
     }
 
-    function submitScore(
-        address user,
-        uint256 score
-    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function submitScore(uint256 score) external onlyRole(WHITELIST_ROLE) {        
+        require(score > 0, "Score must be positive");
+        address user = msg.sender;
         uint64 currentTimestamp = uint64(block.timestamp);
         bool updated = false;
 
@@ -32,9 +32,9 @@ contract LeaderboardGM is AccessControl {
             if (leaderboard[i].wallet == user) {
                 if (score > leaderboard[i].score) {
                     leaderboard[i].score = score;
-                    leaderboard[i].timestamp = currentTimestamp;
-                    emit SubmitScore(user, score);
+                    leaderboard[i].timestamp = currentTimestamp;                    
                 }
+                emit SubmitScore(user, score);
                 updated = true;
                 break;
             }
@@ -58,6 +58,9 @@ contract LeaderboardGM is AccessControl {
 
             emit SubmitScoreAndAdd(user, score);
         }
+
+        // 🔥 Auto-revoke WHITELIST_ROLE
+        _revokeRole(WHITELIST_ROLE, user);
     }
 
     function getLeaderboard() external view returns (Player[] memory) {
