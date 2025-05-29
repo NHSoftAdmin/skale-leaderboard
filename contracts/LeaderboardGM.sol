@@ -19,7 +19,9 @@ contract LeaderboardGM is AccessControl {
     event SubmitScoreAndAdd(address indexed user, uint256 score);
 
     constructor() {
-        _setupRole(DEFAULT_ADMIN_ROLE, msg.sender);
+        _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
+        _grantRole(WHITELIST_ROLE, msg.sender);
+
     }
 
     function submitScore(uint256 score) external onlyRole(WHITELIST_ROLE) {        
@@ -27,15 +29,16 @@ contract LeaderboardGM is AccessControl {
         address user = msg.sender;
         uint64 currentTimestamp = uint64(block.timestamp);
         bool updated = false;
+        bool scoreAndAdd = false;
 
         for (uint256 i = 0; i < leaderboard.length; i++) {
             if (leaderboard[i].wallet == user) {
                 if (score > leaderboard[i].score) {
                     leaderboard[i].score = score;
-                    leaderboard[i].timestamp = currentTimestamp;                    
+                    leaderboard[i].timestamp = currentTimestamp;  
+                    scoreAndAdd = true;
                 }
-                emit SubmitScore(user, score);
-                updated = true;
+                updated = true;              
                 break;
             }
         }
@@ -43,6 +46,8 @@ contract LeaderboardGM is AccessControl {
         if (!updated) {
             if (leaderboard.length < MAX_LEADERBOARD_SIZE) {
                 leaderboard.push(Player(score, user, currentTimestamp));
+                scoreAndAdd = true;
+
             } else {
                 uint256 minIndex = 0;
                 for (uint256 i = 1; i < leaderboard.length; i++) {
@@ -53,17 +58,22 @@ contract LeaderboardGM is AccessControl {
 
                 if (score > leaderboard[minIndex].score) {
                     leaderboard[minIndex] = Player(score, user, currentTimestamp);
+                    scoreAndAdd = true;
                 }
             }
+        }   
 
+        if(scoreAndAdd){
             emit SubmitScoreAndAdd(user, score);
         }
-
-        // 🔥 Auto-revoke WHITELIST_ROLE
+        else {
+            emit SubmitScore(user, score);
+        }
+              
         _revokeRole(WHITELIST_ROLE, user);
     }
 
     function getLeaderboard() external view returns (Player[] memory) {
         return leaderboard;
     }
-} 
+}
